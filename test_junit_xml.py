@@ -317,7 +317,7 @@ class TestCaseTests(unittest.TestCase):
         (ts, tcs) = serialize_and_read(
             TestSuite(
                 'test', [TestCase(name='Test1', classname='some.class.name',
-                            elapsed_sec=123.345, stderr='I am stderr!')]))[0]
+                                  elapsed_sec=123.345, stderr='I am stderr!')]))[0]
         verify_test_case(
             self, tcs[0],
             {'name': 'Test1', 'classname': 'some.class.name',
@@ -511,13 +511,59 @@ class TestCaseTests(unittest.TestCase):
                          error_message=decode('Skipped error äöü', 'utf-8'),
                          error_output=decode('I skippäd with an error!', 'utf-8'))
 
+    def test_multiple_errors(self):
+        """Tests multiple errors in one test case"""
+        tc = TestCase('Multiple error', allow_multiple_subelements=True)
+        tc.add_error_info("First error", "First error message")
+        (_, tcs) = serialize_and_read(TestSuite('test', [tc]))[0]
+        verify_test_case(
+            self, tcs[0], {'name': 'Multiple error'},
+            errors=[{"message": "First error", "output": "First error message", "type": "error"}])
+        tc.add_error_info("Second error", "Second error message")
+        (_, tcs) = serialize_and_read(TestSuite('test', [tc]))[0]
+        verify_test_case(
+            self, tcs[0], {'name': 'Multiple error'},
+            errors=[{"message": "First error", "output": "First error message", "type": "error"},
+                    {"message": "Second error", "output": "Second error message", "type": "error"}])
+
+    def test_multiple_failures(self):
+        """Tests multiple failures in one test case"""
+        tc = TestCase('Multiple failures', allow_multiple_subelements=True)
+        tc.add_failure_info("First failure", "First failure message")
+        (_, tcs) = serialize_and_read(TestSuite('test', [tc]))[0]
+        verify_test_case(
+            self, tcs[0], {'name': 'Multiple failures'},
+            failures=[{"message": "First failure", "output": "First failure message", "type": "failure"}])
+        tc.add_failure_info("Second failure", "Second failure message")
+        (_, tcs) = serialize_and_read(TestSuite('test', [tc]))[0]
+        verify_test_case(
+            self, tcs[0], {'name': 'Multiple failures'},
+            failures=[{"message": "First failure", "output": "First failure message", "type": "failure"},
+                      {"message": "Second failure", "output": "Second failure message", "type": "failure"}])
+
+    def test_multiple_skipped(self):
+        """Tests multiple skipped messages in one test case"""
+        tc = TestCase('Multiple skipped', allow_multiple_subelements=True)
+        tc.add_skipped_info("First skipped", "First skipped message")
+        (_, tcs) = serialize_and_read(TestSuite('test', [tc]))[0]
+        verify_test_case(
+            self, tcs[0], {'name': 'Multiple skipped'},
+            skipped=[{"message": "First skipped", "output": "First skipped message"}])
+        tc.add_skipped_info("Second skipped", "Second skipped message")
+        (_, tcs) = serialize_and_read(TestSuite('test', [tc]))[0]
+        verify_test_case(
+            self, tcs[0], {'name': 'Multiple skipped'},
+            skipped=[{"message": "First skipped", "output": "First skipped message"},
+                     {"message": "Second skipped", "output": "Second skipped message"}])
+
 
 def verify_test_case(tc, test_case_element, expected_attributes,
                      error_message=None, error_output=None, error_type=None,
                      failure_message=None, failure_output=None,
                      failure_type=None,
                      skipped_message=None, skipped_output=None,
-                     stdout=None, stderr=None):
+                     stdout=None, stderr=None,
+                     errors=[], failures=[], skipped=[]):
     for k, v in expected_attributes.items():
         tc.assertEqual(v, test_case_element.attributes[k].value)
 
@@ -533,47 +579,68 @@ def verify_test_case(tc, test_case_element, expected_attributes,
                 stdout, test_case_element.getElementsByTagName(
                     'system-out')[0].firstChild.nodeValue.strip())
 
-        errors = test_case_element.getElementsByTagName('error')
+        _errors = test_case_element.getElementsByTagName('error')
         if error_message or error_output:
-            tc.assertTrue(len(errors) > 0)
+            tc.assertTrue(len(_errors) > 0)
+        elif errors:
+            tc.assertEqual(len(errors), len(_errors))
         else:
-            tc.assertEqual(0, len(errors))
+            tc.assertEqual(0, len(_errors))
 
         if error_message:
             tc.assertEqual(
-                error_message, errors[0].attributes['message'].value)
+                error_message, _errors[0].attributes['message'].value)
 
-        if error_type and errors:
+        if error_type and _errors:
             tc.assertEqual(
-                error_type, errors[0].attributes['type'].value)
+                error_type, _errors[0].attributes['type'].value)
 
         if error_output:
             tc.assertEqual(
-                error_output, errors[0].firstChild.nodeValue.strip())
+                error_output, _errors[0].firstChild.nodeValue.strip())
 
-        failures = test_case_element.getElementsByTagName('failure')
+        for error_exp, error_r in zip(errors, _errors):
+            tc.assertEqual(error_r.attributes['message'].value, error_exp['message'])
+            tc.assertEqual(error_r.firstChild.nodeValue.strip(), error_exp['output'])
+            tc.assertEqual(error_r.attributes['type'].value, error_exp['type'])
+
+        _failures = test_case_element.getElementsByTagName('failure')
         if failure_message or failure_output:
-            tc.assertTrue(len(failures) > 0)
+            tc.assertTrue(len(_failures) > 0)
+        elif failures:
+            tc.assertEqual(len(failures), len(_failures))
         else:
-            tc.assertEqual(0, len(failures))
+            tc.assertEqual(0, len(_failures))
 
         if failure_message:
             tc.assertEqual(
-                failure_message, failures[0].attributes['message'].value)
+                failure_message, _failures[0].attributes['message'].value)
 
-        if failure_type and failures:
+        if failure_type and _failures:
             tc.assertEqual(
-                failure_type, failures[0].attributes['type'].value)
+                failure_type, _failures[0].attributes['type'].value)
 
         if failure_output:
             tc.assertEqual(
-                failure_output, failures[0].firstChild.nodeValue.strip())
+                failure_output, _failures[0].firstChild.nodeValue.strip())
 
-        skipped = test_case_element.getElementsByTagName('skipped')
+        for failure_exp, failure_r in zip(failures, _failures):
+            tc.assertEqual(failure_r.attributes['message'].value, failure_exp['message'])
+            tc.assertEqual(failure_r.firstChild.nodeValue.strip(), failure_exp['output'])
+            tc.assertEqual(failure_r.attributes['type'].value, failure_exp['type'])
+
+        _skipped = test_case_element.getElementsByTagName('skipped')
         if skipped_message or skipped_output:
-            tc.assertTrue(len(skipped) > 0)
+            tc.assertTrue(len(_skipped) > 0)
+        elif skipped:
+            tc.assertEqual(len(skipped), len(_skipped))
         else:
-            tc.assertEqual(0, len(skipped))
+            tc.assertEqual(0, len(_skipped))
+
+        for skipped_exp, skipped_r in zip(skipped, _skipped):
+            tc.assertEqual(skipped_r.attributes['message'].value, skipped_exp['message'])
+            tc.assertEqual(skipped_r.firstChild.nodeValue.strip(), skipped_exp['output'])
+
 
 if __name__ == '__main__':
     unittest.main()
